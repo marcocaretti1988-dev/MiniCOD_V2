@@ -9,6 +9,7 @@ extends Node
 const BEACON_SCRIPT := preload("res://scenes/beacon.gd")
 
 signal game_ended(won: bool)
+signal player_damaged(amount: float, from_position: Vector3)
 
 @export_group("Rules")
 @export var kills_to_win: int = 10
@@ -134,6 +135,7 @@ func damage_player(amount: float, from_position: Vector3) -> void:
 		return
 	health = maxf(health - amount, 0.0)
 	_since_damage = 0.0
+	player_damaged.emit(amount, from_position)
 	if _hud != null:
 		_hud.set_health(health, max_health)
 		_hud.show_damage(from_position)

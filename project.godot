@@ -11,8 +11,13 @@ config_version=5
 [application]
 
 config/name="MiniCOD_V2"
-run/main_scene="res://scenes/maps/shipyard.tscn"
+run/main_scene="res://scenes/ui/menu.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
+
+[autoload]
+
+GameSettings="*res://scripts/game_settings.gd"
+Sfx="*res://scripts/audio_manager.gd"
 
 [display]
 

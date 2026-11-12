@@ -1,0 +1,13 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/ui/menu.gd" id="1_menu"]
+
+[node name="Menu" type="Node3D"]
+script = ExtResource("1_menu")
+
+[node name="MenuCamera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 15, 36)
+fov = 65.0
+far = 500.0
+
+[node name="UI" type="CanvasLayer" parent="."]
