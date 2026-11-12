@@ -120,6 +120,9 @@ func _check_renderer() -> void:
 
 
 func _restart_with(method: String) -> void:
+	# A browser or a phone cannot relaunch the game.
+	if OS.has_feature("web") or OS.has_feature("mobile"):
+		return
 	var args := PackedStringArray()
 	if OS.has_feature("editor"):
 		# Started from the Godot editor: the new process needs the project path.
