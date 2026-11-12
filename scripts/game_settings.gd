@@ -4,9 +4,11 @@ extends Node
 ## RENDERER
 ##   Godot picks the renderer when the game starts, so changing it means
 ##   restarting: set_renderer() saves the choice and relaunches the game.
-##   "auto" (default) = Forward+ (full graphics) everywhere, except on Macs with
-##   an Intel integrated GPU, where Forward+ is broken: there it switches to the
-##   Compatibility renderer by itself. F9 toggles the two at any time.
+##   The project itself is set to Compatibility, so the Godot editor works on
+##   every machine. "auto" (default) = when the game starts it relaunches itself
+##   on Forward+ (full graphics), except on Macs with an Intel integrated GPU,
+##   where Forward+ is broken and it stays on Compatibility.
+##   The 0 key (or F9) toggles the two at any time.
 ##
 ## QUALITY (shadows, fog and bloom stay on at every level)
 ##   High:   4x MSAA, 4096 soft shadows, SSAO, grain + aberration,
@@ -28,6 +30,7 @@ var quality: String = "medium"
 ## "auto", "forward_plus" or "gl_compatibility".
 var renderer_preference: String = "auto"
 var post: CanvasLayer
+var _watchdog: Thread
 
 
 func _ready() -> void:
@@ -58,7 +61,8 @@ func _ready() -> void:
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
-	if key != null and key.pressed and not key.echo and key.keycode == KEY_F9:
+	# 0 as well as F9: on MacBooks the F keys are media keys unless fn is held.
+	if key != null and key.pressed and not key.echo and (key.keycode == KEY_F9 or key.keycode == KEY_0 or key.physical_keycode == KEY_0):
 		toggle_renderer()
 
 
@@ -128,7 +132,14 @@ func _restart_with(method: String) -> void:
 		args.append("opengl3")
 	args.append("--")
 	args.append(RESTART_FLAG)
-	OS.set_restart_on_exit(true, args)
+	# Launch the new instance ourselves, then close this one. If the old
+	# renderer is slow to shut down, a watchdog thread ends the process so two
+	# copies of the game never stay open.
+	OS.create_process(OS.get_executable_path(), args)
+	_watchdog = Thread.new()
+	_watchdog.start(func() -> void:
+		OS.delay_msec(2500)
+		OS.kill(OS.get_process_id()))
 	get_tree().paused = false
 	get_tree().quit()
 

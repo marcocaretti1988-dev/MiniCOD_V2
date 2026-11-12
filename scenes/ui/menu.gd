@@ -137,7 +137,7 @@ func _build_ui() -> void:
 	renderer.item_selected.connect(func(index: int) -> void:
 		_settings().set_renderer(_settings().RENDERERS[index]))
 	renderer_row.add_child(renderer)
-	box.add_child(_label("Changing renderer restarts the game. F9 switches it at any time.", 13, Color(0.75, 0.78, 0.82)))
+	box.add_child(_label("Changing renderer restarts the game. The 0 key switches it at any time.", 13, Color(0.75, 0.78, 0.82)))
 
 	# Controls.
 	box.add_child(_spacer(2))
