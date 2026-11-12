@@ -54,9 +54,23 @@ func _ready() -> void:
 	add_child(post)
 
 	# Every WorldEnvironment that enters the tree gets the current look.
+	_setup_web_touch()
 	get_tree().node_added.connect(_on_node_added)
 	apply()
 	_check_renderer.call_deferred()
+
+
+## Web only: stops Safari from scrolling or zooming the
+## page when a finger drags on the game. Same effect as
+## the "Head Include" style, without touching the export.
+func _setup_web_touch() -> void:
+	if not OS.has_feature("web"):
+		return
+	var js := "var c = document.querySelector('canvas');" \
+		+ "if (c) { c.style.touchAction = 'none'; }" \
+		+ "document.body.style.touchAction = 'none';" \
+		+ "document.body.style.overscrollBehavior = 'none';"
+	JavaScriptBridge.eval(js, true)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
