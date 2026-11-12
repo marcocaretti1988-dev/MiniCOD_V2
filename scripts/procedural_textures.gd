@@ -83,7 +83,35 @@ static func make_concrete_material(uv_scale: float, triplanar: bool = false, tin
 	mat.uv1_triplanar = triplanar
 	mat.uv1_world_triplanar = triplanar
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	_add_hd_layers(mat)
 	return mat
+
+
+## 1024 procedural layers laid over the slab texture at a much larger scale so
+## the ground does not repeat: roughness variation (centred on 0.85), large
+## colour stains and a network of cracks in the normal map.
+static func _add_hd_layers(mat: StandardMaterial3D) -> void:
+	var ShipTex = load("res://scripts/shipyard_textures.gd")
+	var g := func(v: float, a: float = 1.0) -> Color: return Color(v, v, v, a)
+	mat.roughness = 1.0
+	mat.roughness_texture = ShipTex.noise_texture(401, 0.012, 4,
+		[0.0, 0.35, 0.7, 1.0], [g.call(0.55), g.call(0.8), g.call(0.88), g.call(0.97)])
+	mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GRAYSCALE
+	mat.detail_enabled = true
+	mat.detail_blend_mode = BaseMaterial3D.BLEND_MODE_MUL
+	mat.detail_uv_layer = BaseMaterial3D.DETAIL_UV_2
+	mat.uv2_triplanar = true
+	mat.uv2_world_triplanar = true
+	mat.uv2_scale = Vector3(1.0 / 14.0, 1.0 / 14.0, 1.0 / 14.0)
+	# Colour variation / damp stains (multiplied over the slabs). Alpha 0.45 keeps
+	# the slab joints of the base normal map visible under the cracks.
+	mat.detail_albedo = ShipTex.noise_texture(402, 0.007, 5,
+		[0.0, 0.3, 0.6, 1.0],
+		[Color(0.5, 0.48, 0.46, 0.45), Color(0.8, 0.78, 0.75, 0.45), Color(1.0, 1.0, 1.0, 0.45), Color(1.0, 0.98, 0.94, 0.45)])
+	# Cracks: cellular noise edges turned into a normal map.
+	mat.detail_normal = ShipTex.noise_texture(403, 0.012, 2,
+		[0.0, 0.035, 0.09, 1.0], [g.call(0.0), g.call(0.55), g.call(1.0), g.call(1.0)],
+		FastNoiseLite.TYPE_CELLULAR, true, 14.0)
 
 
 # ---------------------------------------------------------------------------

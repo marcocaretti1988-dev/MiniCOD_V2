@@ -75,6 +75,7 @@ var _materials: Array[StandardMaterial3D] = []
 var _muzzle: Marker3D
 var _muzzle_flash: GPUParticles3D
 var _hit_sparks: Node3D
+var _blood: GPUParticles3D
 var _death_dust: GPUParticles3D
 var _impacts: Array[Node3D] = []
 var _impact_index: int = 0
@@ -424,8 +425,12 @@ func take_damage(amount: float, is_headshot: bool = false) -> void:
 		mat.emission_energy_multiplier = 2.0
 	var height := 1.63 if is_headshot else 1.15
 	var forward := -global_transform.basis.z
-	_place_along_normal(_hit_sparks, global_position + Vector3(0.0, height, 0.0) + forward * 0.2, forward)
+	var hit_point := global_position + Vector3(0.0, height, 0.0) + forward * 0.2
+	_place_along_normal(_hit_sparks, hit_point, forward)
 	WeaponFX.burst(_hit_sparks)
+	# Dark red puff (no gore), pushed out towards the shooter.
+	_blood.global_transform = Transform3D(global_transform.basis, hit_point)
+	WeaponFX.burst(_blood)
 
 	# Being shot reveals where the player is.
 	if _player != null:
@@ -523,55 +528,129 @@ func _make_material(tint: Color, roughness: float, metallic: float = 0.0) -> Sta
 	return mat
 
 
+func _make_camo(tint: Color) -> StandardMaterial3D:
+	var mat := _make_material(tint, 0.85)
+	mat.albedo_texture = EnemyFX.get_camo_texture()
+	mat.uv1_triplanar = true
+	mat.uv1_scale = Vector3(2.2, 2.2, 2.2)
+	return mat
+
+
 func _build_body() -> void:
+	# Camouflage uniform in a colour derived from the vest, so squads stay readable.
+	var camo_tint := vest_color.lerp(Color(0.45, 0.44, 0.34), 0.55).lightened(0.35)
+	var camo := _make_camo(camo_tint)
 	var vest := _make_material(vest_color, 0.9)
-	var uniform := _make_material(vest_color.darkened(0.45).lerp(Color(0.2, 0.2, 0.18), 0.5), 0.85)
-	var helmet := _make_material(vest_color.darkened(0.3), 0.5, 0.3)
+	var helmet := _make_camo(vest_color.lerp(Color(0.35, 0.36, 0.28), 0.5).lightened(0.15))
+	helmet.roughness = 0.5
+	helmet.metallic = 0.3
 	var skin := _make_material(Color(0.78, 0.6, 0.48), 0.7)
 	var boots := _make_material(Color(0.07, 0.06, 0.06), 0.8)
-	var gun_metal := WeaponFX.make_metal_material(Color(0.14, 0.145, 0.16))
+	var gloves := _make_material(Color(0.09, 0.09, 0.08), 0.9)
+	var strap := _make_material(Color(0.13, 0.12, 0.1), 0.9)
+	var face_dark := _make_material(Color(0.1, 0.07, 0.06), 0.7)
+	var gun_metal := WeaponFX.make_gun_metal(Color(0.1, 0.105, 0.115))
 	_materials.append(gun_metal)
+	var gun_polymer := WeaponFX.make_polymer()
+	_materials.append(gun_polymer)
+	# Reflective visor / goggles.
+	var visor := StandardMaterial3D.new()
+	visor.albedo_color = Color(0.08, 0.12, 0.16)
+	visor.metallic = 1.0
+	visor.roughness = 0.08
+	visor.metallic_specular = 1.0
+	_materials.append(visor)
 
-	# Legs and boots.
+	# --- Legs, knee pads, boots ---
 	for side in [-1.0, 1.0]:
-		_add_capsule(0.09, 0.82, Vector3(0.11 * side, 0.45, 0.0), uniform)
-		_add_box(Vector3(0.13, 0.1, 0.28), Vector3(0.11 * side, 0.05, -0.04), boots)
+		_add_capsule(0.095, 0.48, Vector3(0.11 * side, 0.66, 0.0), camo)                    # thigh
+		_add_capsule(0.08, 0.46, Vector3(0.11 * side, 0.3, 0.01), camo)                     # shin
+		_add_box(Vector3(0.13, 0.11, 0.06), Vector3(0.11 * side, 0.47, -0.075), strap)      # knee pad
+		_add_box(Vector3(0.13, 0.16, 0.2), Vector3(0.11 * side, 0.1, -0.01), boots)         # boot shaft
+		_add_box(Vector3(0.13, 0.08, 0.14), Vector3(0.11 * side, 0.06, -0.15), boots)       # boot toe
+		_add_box(Vector3(0.14, 0.03, 0.31), Vector3(0.11 * side, 0.015, -0.06), strap)      # sole
+		_add_box(Vector3(0.1, 0.12, 0.05), Vector3(0.2 * side, 0.74, 0.0), vest)            # thigh pouch
 
-	# Torso: uniform + vest + pouches.
-	_add_box(Vector3(0.4, 0.2, 0.22), Vector3(0.0, 0.88, 0.0), uniform)             # hips
-	_add_box(Vector3(0.46, 0.5, 0.28), Vector3(0.0, 1.2, 0.0), vest)                # vest
-	_add_box(Vector3(0.12, 0.13, 0.07), Vector3(-0.12, 1.08, -0.17), vest)          # pouch
-	_add_box(Vector3(0.12, 0.13, 0.07), Vector3(0.12, 1.08, -0.17), vest)           # pouch
-	_add_box(Vector3(0.3, 0.3, 0.1), Vector3(0.0, 1.22, 0.18), uniform)             # backpack
+	# --- Torso: uniform, belt, vest with pouches and straps ---
+	_add_box(Vector3(0.38, 0.2, 0.22), Vector3(0.0, 0.9, 0.0), camo)                        # hips
+	_add_box(Vector3(0.4, 0.05, 0.24), Vector3(0.0, 0.99, 0.0), strap)                      # belt
+	_add_box(Vector3(0.4, 0.5, 0.23), Vector3(0.0, 1.22, 0.0), camo)                        # chest (uniform)
+	_add_box(Vector3(0.44, 0.4, 0.29), Vector3(0.0, 1.2, 0.0), vest)                        # plate carrier
+	for x in [-0.14, 0.0, 0.14]:
+		_add_box(Vector3(0.11, 0.15, 0.06), Vector3(x, 1.1, -0.17), vest)                   # magazine pouches
+		_add_box(Vector3(0.112, 0.03, 0.065), Vector3(x, 1.165, -0.172), strap)             # pouch flaps
+	_add_box(Vector3(0.12, 0.09, 0.05), Vector3(-0.13, 1.3, -0.165), vest)                  # admin pouch
+	for side in [-1.0, 1.0]:
+		_add_box(Vector3(0.07, 0.1, 0.3), Vector3(0.13 * side, 1.43, 0.0), vest)            # shoulder straps
+		_add_capsule(0.085, 0.2, Vector3(0.27 * side, 1.42, 0.0), camo, Vector3(0, 0, 90))  # shoulders
+	_add_box(Vector3(0.2, 0.06, 0.22), Vector3(0.0, 1.47, 0.02), camo)                      # collar
 
-	# Arms holding the rifle.
-	_add_capsule(0.065, 0.42, Vector3(0.28, 1.25, -0.06), uniform, Vector3(-35, 0, 8))    # right upper
-	_add_capsule(0.055, 0.4, Vector3(0.2, 1.12, -0.3), uniform, Vector3(-80, -25, 0))     # right forearm
-	_add_capsule(0.065, 0.42, Vector3(-0.28, 1.25, -0.08), uniform, Vector3(-45, 0, -8))  # left upper
-	_add_capsule(0.055, 0.42, Vector3(-0.17, 1.14, -0.36), uniform, Vector3(-85, 35, 0))  # left forearm
-	_add_capsule(0.05, 0.11, Vector3(0.1, 1.1, -0.44), skin)                              # right hand
-	_add_capsule(0.05, 0.11, Vector3(-0.03, 1.12, -0.58), skin)                           # left hand
+	# --- Backpack, bedroll, radio with antenna ---
+	_add_box(Vector3(0.32, 0.36, 0.14), Vector3(0.0, 1.22, 0.2), camo)
+	_add_capsule(0.06, 0.34, Vector3(0.0, 1.44, 0.2), strap, Vector3(0, 0, 90))             # bedroll
+	_add_box(Vector3(0.09, 0.16, 0.06), Vector3(0.13, 1.36, 0.25), boots)                   # radio
+	var antenna := CylinderMesh.new()
+	antenna.top_radius = 0.004
+	antenna.bottom_radius = 0.007
+	antenna.height = 0.55
+	antenna.radial_segments = 6
+	_add_part(antenna, Vector3(0.15, 1.7, 0.25), boots, Vector3(0, 0, -6))
 
-	# Head and helmet.
-	_add_capsule(0.06, 0.16, Vector3(0.0, 1.5, 0.0), skin)                          # neck
-	_add_capsule(0.115, 0.27, Vector3(0.0, 1.63, 0.0), skin)                        # head
-	_add_box(Vector3(0.27, 0.13, 0.3), Vector3(0.0, 1.75, 0.0), helmet)             # helmet
-	_add_box(Vector3(0.25, 0.04, 0.06), Vector3(0.0, 1.69, -0.17), helmet)          # helmet brim
+	# --- Arms holding the rifle, gloves ---
+	_add_capsule(0.065, 0.36, Vector3(0.28, 1.27, -0.07), camo, Vector3(-38, 0, 8))         # right upper arm
+	_add_capsule(0.055, 0.38, Vector3(0.2, 1.13, -0.3), camo, Vector3(-80, -25, 0))         # right forearm
+	_add_capsule(0.065, 0.36, Vector3(-0.28, 1.27, -0.09), camo, Vector3(-46, 0, -8))       # left upper arm
+	_add_capsule(0.055, 0.42, Vector3(-0.17, 1.14, -0.36), camo, Vector3(-85, 35, 0))       # left forearm
+	_add_box(Vector3(0.075, 0.06, 0.1), Vector3(0.09, 1.1, -0.44), gloves)                  # right hand
+	_add_box(Vector3(0.075, 0.06, 0.11), Vector3(-0.02, 1.12, -0.6), gloves)                # left hand
 
-	# Rifle (metal).
-	_add_box(Vector3(0.05, 0.08, 0.42), Vector3(0.06, 1.16, -0.4), gun_metal)       # receiver
-	_add_box(Vector3(0.04, 0.07, 0.2), Vector3(0.06, 1.15, -0.1), gun_metal)        # stock
-	_add_box(Vector3(0.03, 0.14, 0.05), Vector3(0.06, 1.06, -0.42), gun_metal, Vector3(-10, 0, 0))  # magazine
+	# --- Head with a simple face ---
+	_add_capsule(0.058, 0.16, Vector3(0.0, 1.53, 0.0), skin)                                # neck
+	_add_capsule(0.112, 0.27, Vector3(0.0, 1.65, 0.0), skin)                                # head
+	_add_box(Vector3(0.026, 0.045, 0.03), Vector3(0.0, 1.635, -0.118), skin)                # nose
+	for side in [-1.0, 1.0]:
+		_add_box(Vector3(0.03, 0.014, 0.012), Vector3(0.042 * side, 1.672, -0.105), face_dark)   # eyes
+		_add_box(Vector3(0.042, 0.01, 0.012), Vector3(0.042 * side, 1.692, -0.104), face_dark)   # eyebrows
+		_add_box(Vector3(0.02, 0.05, 0.03), Vector3(0.112 * side, 1.65, 0.0), skin)              # ears
+	_add_box(Vector3(0.05, 0.008, 0.012), Vector3(0.0, 1.59, -0.103), face_dark)            # mouth
+	_add_box(Vector3(0.07, 0.03, 0.02), Vector3(0.0, 1.56, -0.095), skin)                   # chin
+
+	# --- Helmet with goggles (reflective visor) and chin strap ---
+	var dome := SphereMesh.new()
+	dome.radius = 0.15
+	dome.height = 0.21
+	dome.radial_segments = 14
+	dome.rings = 7
+	_add_part(dome, Vector3(0.0, 1.76, 0.01), helmet, Vector3.ZERO)
+	_add_box(Vector3(0.28, 0.07, 0.3), Vector3(0.0, 1.735, 0.012), helmet)                  # helmet rim
+	_add_box(Vector3(0.21, 0.055, 0.03), Vector3(0.0, 1.765, -0.148), visor)                # goggles
+	_add_box(Vector3(0.24, 0.02, 0.035), Vector3(0.0, 1.765, -0.14), strap)                 # goggle strap
+	for side in [-1.0, 1.0]:
+		_add_box(Vector3(0.012, 0.15, 0.02), Vector3(0.118 * side, 1.64, -0.03), strap)     # chin strap
+
+	# --- Rifle (metal + polymer) ---
+	_add_box(Vector3(0.045, 0.07, 0.3), Vector3(0.06, 1.165, -0.36), gun_metal)             # receiver
+	_add_box(Vector3(0.048, 0.055, 0.22), Vector3(0.06, 1.165, -0.6), gun_polymer)          # handguard
+	_add_box(Vector3(0.04, 0.065, 0.2), Vector3(0.06, 1.15, -0.1), gun_polymer)             # stock
+	_add_box(Vector3(0.03, 0.15, 0.05), Vector3(0.06, 1.06, -0.4), gun_metal, Vector3(-12, 0, 0))  # magazine
+	_add_box(Vector3(0.03, 0.08, 0.04), Vector3(0.06, 1.1, -0.27), gun_polymer, Vector3(15, 0, 0))  # grip
+	_add_box(Vector3(0.03, 0.04, 0.06), Vector3(0.06, 1.22, -0.36), gun_metal)              # optic
 	var barrel := CylinderMesh.new()
-	barrel.top_radius = 0.013
-	barrel.bottom_radius = 0.013
-	barrel.height = 0.3
+	barrel.top_radius = 0.012
+	barrel.bottom_radius = 0.012
+	barrel.height = 0.26
 	barrel.radial_segments = 10
-	_add_part(barrel, Vector3(0.06, 1.17, -0.75), gun_metal, Vector3(90, 0, 0))
+	_add_part(barrel, Vector3(0.06, 1.175, -0.82), gun_metal, Vector3(90, 0, 0))
+	var brake := CylinderMesh.new()
+	brake.top_radius = 0.018
+	brake.bottom_radius = 0.018
+	brake.height = 0.07
+	brake.radial_segments = 10
+	_add_part(brake, Vector3(0.06, 1.175, -0.96), gun_metal, Vector3(90, 0, 0))
 
 	_muzzle = Marker3D.new()
 	_muzzle.name = "Muzzle"
-	_muzzle.position = Vector3(0.06, 1.17, -0.92)
+	_muzzle.position = Vector3(0.06, 1.175, -1.01)
 	body.add_child(_muzzle)
 
 
@@ -584,6 +663,10 @@ func _build_effects() -> void:
 	_hit_sparks.name = "HitSparks"
 	_hit_sparks.top_level = true
 	add_child(_hit_sparks)
+
+	_blood = EnemyFX.make_blood_puff()
+	_blood.top_level = true
+	add_child(_blood)
 
 	_death_dust = EnemyFX.make_death_dust()
 	_death_dust.top_level = true

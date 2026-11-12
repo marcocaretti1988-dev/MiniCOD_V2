@@ -94,6 +94,7 @@ func _build() -> void:
 	_quality = OptionButton.new()
 	_quality.add_item("Low")
 	_quality.add_item("Medium")
+	_quality.add_item("High")
 	_quality.custom_minimum_size = Vector2(150, 40)
 	_quality.add_theme_font_size_override("font_size", 20)
 	_quality.select(_settings().get_quality_index())

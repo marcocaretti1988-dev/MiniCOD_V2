@@ -6,6 +6,7 @@ extends Node3D
 const ProcTex := preload("res://scripts/procedural_textures.gd")
 const ShipTex := preload("res://scripts/shipyard_textures.gd")
 const ENEMY_SCENE := preload("res://scenes/enemies/enemy.tscn")
+const ShipyardProps := preload("res://scripts/shipyard_props.gd")
 
 const MAP_SIZE := 80.0
 const HALF := 40.0
@@ -89,7 +90,8 @@ func _ready() -> void:
 	add_child(_geometry)
 
 	_concrete_wall = ProcTex.make_concrete_material(0.35, true, Color(0.86, 0.85, 0.82), 21)
-	_dark_metal = ShipTex.make_painted_metal(Color(0.13, 0.14, 0.16), 90, false, Vector3(0.5, 0.5, 0.5), true, 0.7, 0.4, 0.6)
+	_concrete_wall.roughness = 1.06  # walls a touch rougher than the ground (about 0.9)
+	_dark_metal = ShipTex.make_painted_metal(Color(0.13, 0.14, 0.16), 90, false, Vector3(0.5, 0.5, 0.5), true, 0.9, 0.3, 0.6, 0.6)
 	_sandbag_mat = ShipTex.make_sandbag_material()
 
 	_build_ground()
@@ -102,6 +104,8 @@ func _ready() -> void:
 	_build_tire_marks()
 
 	_bake_navigation()
+	# Decoration only (no colliders), added after the navigation bake.
+	ShipyardProps.build(self)
 	_spawn_enemies()
 
 
@@ -213,10 +217,10 @@ func _build_containers() -> void:
 		var color: Color = CONTAINER_COLORS[name_key]
 		# Corrugated body: metallic 0.6, roughness 0.4, rust from procedural noise.
 		_container_mats[name_key] = ShipTex.make_painted_metal(
-			color, seed_value, true, Vector3(1.0 / 2.0, 1.0 / C_H, 1.0 / 2.0), false, 0.6, 0.4)
+			color, seed_value, true, Vector3(1.0 / 2.0, 1.0 / C_H, 1.0 / 2.0), false, 0.65, 0.45)
 		# Darker frame / edges.
 		_edge_mats[name_key] = ShipTex.make_painted_metal(
-			color.darkened(0.5), seed_value + 50, false, Vector3(1.0, 1.0, 1.0), false, 0.6, 0.4)
+			color.darkened(0.5), seed_value + 50, false, Vector3(1.0, 1.0, 1.0), false, 0.65, 0.45)
 		seed_value += 1
 	for c in CONTAINERS:
 		_add_container(Vector3(c[0], c[4] * C_H, c[1]), c[2], c[3], c[4] == 0)
@@ -485,7 +489,7 @@ func _build_cranes() -> void:
 
 ## Gantry crane: two A-shaped legs, a top girder, trolley, cables, spreader and lights.
 func _add_gantry_crane(center: Vector3, rot_y_deg: float, span: float, height: float, trolley_pos: float) -> void:
-	var paint := ShipTex.make_painted_metal(Color(0.85, 0.6, 0.08), 60, false, Vector3(0.5, 0.5, 0.5), true, 0.6, 0.4, 0.8)
+	var paint := ShipTex.make_painted_metal(Color(0.85, 0.6, 0.08), 60, false, Vector3(0.5, 0.5, 0.5), true, 0.9, 0.3, 0.8, 1.0)
 	var flood := ShipTex.make_emissive_material(Color(1.0, 0.93, 0.75), 4.0)
 	var beacon := ShipTex.make_emissive_material(Color(1.0, 0.08, 0.05), 5.0)
 	var cabin_glass := ShipTex.make_emissive_material(Color(0.45, 0.75, 1.0), 1.2)

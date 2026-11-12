@@ -132,6 +132,44 @@ static func make_muzzle_flash(flash_size: float = 0.16) -> GPUParticles3D:
 	quad.size = Vector2(flash_size, flash_size)
 	quad.material = _flash_material
 	p.draw_pass_1 = quad
+	p.add_child(_make_muzzle_smoke(flash_size))
+	return p
+
+
+## Thin grey smoke that drifts off the muzzle for 0.4 s after each shot.
+static func _make_muzzle_smoke(flash_size: float) -> GPUParticles3D:
+	if _dust_material == null:
+		_dust_material = _make_billboard_material(false)
+	var p := GPUParticles3D.new()
+	p.name = "MuzzleSmoke"
+	p.amount = 6
+	p.lifetime = 0.4
+	p.one_shot = true
+	p.explosiveness = 0.85
+	p.emitting = false
+	p.local_coords = false
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var m := ParticleProcessMaterial.new()
+	m.direction = Vector3(0, 0.25, -1)
+	m.spread = 16.0
+	m.initial_velocity_min = 0.4
+	m.initial_velocity_max = 1.6
+	m.gravity = Vector3(0, 0.7, 0)
+	m.damping_min = 1.5
+	m.damping_max = 3.0
+	m.angle_min = 0.0
+	m.angle_max = 360.0
+	m.scale_min = 0.5
+	m.scale_max = 1.3
+	m.color_ramp = _ramp(
+		[0.0, 0.25, 1.0],
+		[Color(0.75, 0.74, 0.72, 0.0), Color(0.72, 0.71, 0.7, 0.3), Color(0.8, 0.8, 0.8, 0.0)]
+	)
+	p.process_material = m
+	var quad := QuadMesh.new()
+	quad.size = Vector2(flash_size * 0.75, flash_size * 0.75)
+	quad.material = _dust_material
+	p.draw_pass_1 = quad
 	return p
 
 
@@ -215,14 +253,19 @@ static func make_shell_emitter(shell_length: float = 0.022) -> GPUParticles3D:
 	var p := GPUParticles3D.new()
 	p.name = "Shell"
 	p.amount = 1
-	p.lifetime = 0.9
+	p.lifetime = 1.6
 	p.one_shot = true
 	p.explosiveness = 1.0
 	p.emitting = false
 	p.local_coords = false
+	p.collision_base_size = shell_length * 0.5
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 	var m := ParticleProcessMaterial.new()
+	# Shells bounce on GPUParticlesCollision nodes (Forward+ / Mobile renderers).
+	m.collision_mode = ParticleProcessMaterial.COLLISION_RIGID
+	m.collision_bounce = 0.45
+	m.collision_friction = 0.35
 	m.direction = Vector3(1.0, 0.7, 0.15)
 	m.spread = 12.0
 	m.initial_velocity_min = 1.8
@@ -253,3 +296,55 @@ static func burst(node: Node) -> void:
 		node.emitting = true
 	for child in node.get_children():
 		burst(child)
+
+
+# ---------------------------------------------------------------------------
+# HD viewmodel materials (graphics upgrade)
+# ---------------------------------------------------------------------------
+
+## Black gun metal: metallic 0.8, roughness 0.35.
+static func make_gun_metal(tint: Color = Color(0.085, 0.09, 0.1)) -> StandardMaterial3D:
+	var mat := make_metal_material(tint)
+	mat.metallic = 0.8
+	mat.roughness = 0.35
+	mat.metallic_specular = 0.6
+	return mat
+
+
+## Polymer furniture: roughness 0.6, with a stippled grip texture.
+static func make_polymer(tint: Color = Color(0.07, 0.07, 0.075)) -> StandardMaterial3D:
+	var mat := make_grip_material(tint)
+	mat.roughness = 0.6
+	mat.uv1_scale = Vector3(5.0, 5.0, 5.0)
+	return mat
+
+
+## Sight glass: transparent, metallic 1.0, roughness 0.05.
+static func make_lens(tint: Color = Color(0.35, 0.55, 0.65, 0.2)) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = tint
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.metallic = 1.0
+	mat.roughness = 0.05
+	mat.metallic_specular = 1.0
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return mat
+
+
+## Small glowing dot (red dot sight, tritium night sights).
+static func make_dot(color: Color = Color(1.0, 0.1, 0.05), energy: float = 4.0) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = energy
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	return mat
+
+
+## Tactical gloves and sleeves: fabric, roughness 0.9.
+static func make_glove(tint: Color = Color(0.1, 0.1, 0.09)) -> StandardMaterial3D:
+	var mat := make_grip_material(tint)
+	mat.roughness = 0.9
+	mat.uv1_scale = Vector3(6.0, 6.0, 6.0)
+	return mat

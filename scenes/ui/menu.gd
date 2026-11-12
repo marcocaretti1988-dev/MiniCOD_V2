@@ -40,6 +40,9 @@ func _ready() -> void:
 	camera.make_current()
 	_update_camera(0.0)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	var settings := get_node_or_null("/root/GameSettings")
+	if settings != null and settings.post != null:
+		settings.post.reset()
 
 
 func _process(delta: float) -> void:
@@ -95,13 +98,11 @@ func _build_ui() -> void:
 	box.add_theme_constant_override("separation", 12)
 	panel.add_child(box)
 
-	var title := _label("SHIPYARD\nSTRIKE", 68, Color(1.0, 0.82, 0.2))
-	title.add_theme_constant_override("line_spacing", -14)
+	var title := _label("SHIPYARD STRIKE", 46, Color(1.0, 0.82, 0.2))
 	box.add_child(title)
 	box.add_child(_label("Eliminate 10 enemies before the 5:00 timer runs out.", 17, Color(0.85, 0.88, 0.92)))
 
-	box.add_child(_spacer(8))
-	_play_button = _button("PLAY", 30, Vector2(0, 64))
+	_play_button = _button("PLAY", 28, Vector2(0, 56))
 	_play_button.pressed.connect(_on_play)
 	box.add_child(_play_button)
 
@@ -113,6 +114,7 @@ func _build_ui() -> void:
 	var quality := OptionButton.new()
 	quality.add_item("Low")
 	quality.add_item("Medium")
+	quality.add_item("High")
 	quality.select(_settings().get_quality_index())
 	quality.custom_minimum_size = Vector2(170, 42)
 	quality.add_theme_font_size_override("font_size", 20)
@@ -121,8 +123,24 @@ func _build_ui() -> void:
 		_sfx(&"ui_click", -6.0))
 	row.add_child(quality)
 
+	# Renderer selector: changing it restarts the game.
+	var renderer_row := HBoxContainer.new()
+	renderer_row.add_theme_constant_override("separation", 14)
+	box.add_child(renderer_row)
+	renderer_row.add_child(_label("RENDERER", 20, Color.WHITE))
+	var renderer := OptionButton.new()
+	renderer.add_item("Forward+ (full graphics)")
+	renderer.add_item("Compatibility (old Macs)")
+	renderer.select(_settings().get_renderer_index())
+	renderer.custom_minimum_size = Vector2(250, 42)
+	renderer.add_theme_font_size_override("font_size", 17)
+	renderer.item_selected.connect(func(index: int) -> void:
+		_settings().set_renderer(_settings().RENDERERS[index]))
+	renderer_row.add_child(renderer)
+	box.add_child(_label("Changing renderer restarts the game. F9 switches it at any time.", 13, Color(0.75, 0.78, 0.82)))
+
 	# Controls.
-	box.add_child(_spacer(4))
+	box.add_child(_spacer(2))
 	box.add_child(_label("CONTROLS", 20, Color(1.0, 0.82, 0.2)))
 	var grid := GridContainer.new()
 	grid.columns = 4  # two key / action pairs per row so the list fits at 720p
@@ -136,7 +154,7 @@ func _build_ui() -> void:
 	var filler := Control.new()
 	filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(filler)
-	var quit := _button("QUIT", 20, Vector2(0, 44))
+	var quit := _button("QUIT", 18, Vector2(0, 38))
 	quit.pressed.connect(func() -> void: get_tree().quit())
 	box.add_child(quit)
 

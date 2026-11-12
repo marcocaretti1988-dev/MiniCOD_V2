@@ -12,7 +12,7 @@ config_version=5
 
 config/name="MiniCOD_V2"
 run/main_scene="res://scenes/ui/menu.tscn"
-config/features=PackedStringArray("4.3", "GL Compatibility")
+config/features=PackedStringArray("4.7", "Forward Plus")
 
 [autoload]
 
@@ -94,10 +94,12 @@ pause={
 
 [rendering]
 
-renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"
+renderer/rendering_method="forward_plus"
+renderer/rendering_method.mobile="mobile"
 lights_and_shadows/directional_shadow/size=4096
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
 lights_and_shadows/positional_shadow/soft_shadow_filter_quality=3
 anti_aliasing/quality/msaa_3d=2
-textures/default_filters/anisotropic_filtering_level=3
+textures/default_filters/anisotropic_filtering_level=2
+occlusion_culling/use_occlusion_culling=true
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=2
