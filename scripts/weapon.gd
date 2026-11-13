@@ -38,6 +38,8 @@ var ads_position: Vector3 = Vector3(0.0, -0.06, -0.3)
 var kick_back: float = 0.05
 var kick_up_deg: float = 3.0
 var flash_size: float = 0.16
+# False for viewmodels with a real reload animation.
+var reload_dip: bool = true
 var shell_length: float = 0.022
 
 # --- State ---
@@ -114,7 +116,7 @@ func _process(delta: float) -> void:
 
 func _update_transform() -> void:
 	var dip := 0.0
-	if is_reloading and reload_time > 0.0:
+	if is_reloading and reload_time > 0.0 and reload_dip:
 		dip = sin(clampf(1.0 - _reload_left / reload_time, 0.0, 1.0) * PI)
 	var pos := hip_position.lerp(ads_position, aim_amount)
 	pos += Vector3(0.0, -0.12 * dip - 0.3 * holster_amount, kick_back * _kick)

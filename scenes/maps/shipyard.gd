@@ -8,6 +8,12 @@ const ShipTex := preload("res://scripts/shipyard_textures.gd")
 const ENEMY_SCENE := preload("res://scenes/enemies/enemy.tscn")
 const ShipyardProps := preload("res://scripts/shipyard_props.gd")
 const MeshMerger := preload("res://scripts/mesh_merger.gd")
+const CONTAINER_MODEL := preload(
+	"res://assets/models/container/container.glb")
+const CASE_MODEL := preload(
+	"res://assets/models/weapon_case/weapon_case.glb")
+const LAMP_MODEL := preload(
+	"res://assets/models/street_light/street_light.fbx")
 
 const MAP_SIZE := 80.0
 const HALF := 40.0
@@ -68,8 +74,7 @@ const ENEMY_PATROLS := [
 @export_enum("auto", "decal_nodes", "flat_quads") var tire_mark_mode: String = "auto"
 
 var _geometry: Node3D
-var _container_mats: Dictionary = {}
-var _edge_mats: Dictionary = {}
+var _container_models: Dictionary = {}
 var _wood_mats: Dictionary = {}
 var _concrete_wall: StandardMaterial3D
 var _dark_metal: StandardMaterial3D
@@ -218,53 +223,42 @@ func _build_perimeter() -> void:
 # ---------------------------------------------------------------------------
 
 func _build_containers() -> void:
-	var seed_value := 10
-	for name_key in CONTAINER_COLORS:
-		var color: Color = CONTAINER_COLORS[name_key]
-		# Corrugated body: metallic 0.6, roughness 0.4, rust from procedural noise.
-		_container_mats[name_key] = ShipTex.make_painted_metal(
-			color, seed_value, true, Vector3(1.0 / 2.0, 1.0 / C_H, 1.0 / 2.0), false, 0.65, 0.45)
-		# Darker frame / edges.
-		_edge_mats[name_key] = ShipTex.make_painted_metal(
-			color.darkened(0.5), seed_value + 50, false, Vector3(1.0, 1.0, 1.0), false, 0.65, 0.45)
-		seed_value += 1
 	for c in CONTAINERS:
 		_add_container(Vector3(c[0], c[4] * C_H, c[1]), c[2], c[3], c[4] == 0)
 
 
+## Real container model, stretched to the same box as
+## before, so cover and collisions do not change.
 func _add_container(base: Vector3, rot_y_deg: float, color_key: String, is_cover: bool) -> void:
 	var size := Vector3(C_LEN, C_H, C_W)
-	var body := _solid_box(size, base + Vector3(0, C_H * 0.5, 0), _container_mats[color_key], Vector3(0, rot_y_deg, 0))
+	var body := _solid_box(size, base + Vector3(0, C_H * 0.5, 0), null, Vector3(0, rot_y_deg, 0), false)
 	body.name = "Container_%s" % color_key
 	if is_cover:
 		_make_cover(body, C_LEN * 0.5)
+	var model := _tinted_container(color_key)
+	var fit := size / (model["size"] as Vector3)
+	var xform := Transform3D(
+		Basis().scaled(fit), Vector3(0, -C_H * 0.5, 0))
+	MeshMerger.place_model(body, model, xform)
 
-	var edge: Material = _edge_mats[color_key]
-	var first_detail := body.get_child_count()
-	var hx := C_LEN * 0.5
-	var hy := C_H * 0.5
-	var hz := C_W * 0.5
-	for sx in [-1.0, 1.0]:
-		for sz in [-1.0, 1.0]:
-			_mesh_box(body, Vector3(0.16, C_H + 0.02, 0.16), Vector3(sx * (hx - 0.07), 0, sz * (hz - 0.07)), edge)   # corner posts
-	for sy in [-1.0, 1.0]:
-		for sz in [-1.0, 1.0]:
-			_mesh_box(body, Vector3(C_LEN, 0.15, 0.15), Vector3(0, sy * (hy - 0.065), sz * (hz - 0.065)), edge)      # long rails
-		for sx in [-1.0, 1.0]:
-			_mesh_box(body, Vector3(0.14, 0.14, C_W), Vector3(sx * (hx - 0.06), sy * (hy - 0.06), 0), edge)         # short rails
 
-	# Door end (+X): seam, lock rods and handles.
-	_mesh_box(body, Vector3(0.03, C_H - 0.3, 0.04), Vector3(hx + 0.015, 0, 0), edge)
-	for z in [-0.85, -0.28, 0.28, 0.85]:
-		_mesh_cylinder(body, 0.025, C_H - 0.3, Vector3(hx + 0.035, 0, z), edge)
-		_mesh_box(body, Vector3(0.05, 0.05, 0.22), Vector3(hx + 0.05, -0.2, z + 0.08), edge)
-	# The frame and door hardware do not need their own shadows: the body already casts one.
-	for i in range(first_detail, body.get_child_count()):
-		var detail := body.get_child(i) as GeometryInstance3D
-		if detail != null:
-			detail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			# Frame parts share one mesh per container.
-			detail.set_meta("merge_local", true)
+## The model comes in one rusty colour: each container
+## colour gets its own tinted copy of the materials.
+func _tinted_container(color_key: String) -> Dictionary:
+	if _container_models.has(color_key):
+		return _container_models[color_key]
+	var base := MeshMerger.flatten_scene(CONTAINER_MODEL, 0.12)
+	var tint: Color = CONTAINER_COLORS[color_key]
+	tint = Color.WHITE.lerp(tint.lightened(0.35), 0.75)
+	var parts := []
+	for part in base["parts"]:
+		var mat := (part[1] as Material).duplicate()
+		if mat is BaseMaterial3D:
+			mat.albedo_color = tint
+		parts.append([part[0], mat])
+	var model := {"parts": parts, "size": base["size"]}
+	_container_models[color_key] = model
+	return model
 
 
 # ---------------------------------------------------------------------------
@@ -455,6 +449,38 @@ func _add_sandbag_wall(center: Vector3, rot_y_deg: float, bags_long: int = 5) ->
 			bag.scale = Vector3(0.72, 1.0, 1.25)
 
 
+## Open weapon case (model), with a low box collider.
+func _add_weapon_case(base: Vector3, rot_y_deg: float) -> void:
+	var model := MeshMerger.flatten_scene(CASE_MODEL, 0.1)
+	var k := 0.5
+	var size: Vector3 = (model["size"] as Vector3) * k
+	var solid := Vector3(size.x, 0.3, size.z)
+	var body := _solid_box(solid, base + Vector3(0, 0.15, 0), null, Vector3(0, rot_y_deg, 0), false)
+	body.name = "WeaponCase"
+	var xform := Transform3D(
+		Basis().scaled(Vector3.ONE * k), Vector3(0, -0.15, 0))
+	MeshMerger.place_model(body, model, xform)
+
+
+## Decoration only: no collider, it stands on the wall line.
+func _add_street_light(base: Vector3, rot_y_deg: float) -> void:
+	var model := MeshMerger.flatten_scene(LAMP_MODEL, 0.5)
+	for part in model["parts"]:
+		var mat := part[1] as BaseMaterial3D
+		if mat != null and mat.resource_name == "Light":
+			mat.emission_enabled = true
+			mat.emission = Color(1.0, 0.85, 0.6)
+			mat.emission_energy_multiplier = 4.0
+	var holder := Node3D.new()
+	holder.name = "StreetLight"
+	holder.position = base
+	holder.rotation_degrees.y = rot_y_deg
+	_geometry.add_child(holder)
+	var xform := Transform3D(
+		Basis().scaled(Vector3.ONE * 1.8), Vector3.ZERO)
+	MeshMerger.place_model(holder, model, xform, false)
+
+
 func _build_props() -> void:
 	# Crate stacks around the yard.
 	_add_crate_stack(Vector3(-7.0, 0, -7.0), 25.0, 1.0)
@@ -472,6 +498,20 @@ func _build_props() -> void:
 	_add_barrel_group(Vector3(14.5, 0, 23.0), 5, 3)
 	_add_barrel_group(Vector3(36.5, 0, 34.5), 4, 4)
 	_add_barrel_group(Vector3(-36.0, 0, -36.0), 3, 8)
+
+	# Weapon cases: one by each beacon, two in the warehouse.
+	_add_weapon_case(Vector3(-22.2, 0, -20.2), 20.0)
+	_add_weapon_case(Vector3(29.8, 0, -11.0), -15.0)
+	_add_weapon_case(Vector3(-28.3, 0, 22.0), 80.0)
+	_add_weapon_case(Vector3(-17.5, 0, -22.5), 65.0)
+	_add_weapon_case(Vector3(20.5, 0, 4.2), 0.0)
+
+	# Street lights against the perimeter wall.
+	for along in [-30.0, -10.0, 10.0, 30.0]:
+		_add_street_light(Vector3(39.2, 0, along), 180.0)
+		_add_street_light(Vector3(-39.2, 0, along), 0.0)
+		_add_street_light(Vector3(along, 0, 39.2), 90.0)
+		_add_street_light(Vector3(along, 0, -39.2), -90.0)
 
 	# Sandbag walls.
 	_add_sandbag_wall(Vector3(-5.5, 0, 24.0), 0.0)

@@ -117,15 +117,30 @@ static func _is_local(mat: StandardMaterial3D) -> bool:
 
 
 static func _build(group: Dictionary) -> void:
+	var sources := []
+	for item in group["items"]:
+		var inst: MeshInstance3D = item[0]
+		sources.append(
+			[inst.mesh.surface_get_arrays(0), item[1]])
+	var merged := MeshInstance3D.new()
+	merged.name = "Merged"
+	merged.mesh = _join(sources)
+	merged.material_override = group["material"]
+	merged.cast_shadow = group["shadow"]
+	(group["parent"] as Node3D).add_child(merged)
+
+
+## Joins surfaces into one mesh.
+## sources: [[surface arrays, Transform3D], ...]
+static func _join(sources: Array) -> ArrayMesh:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var tangents := PackedFloat32Array()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
-	for item in group["items"]:
-		var inst: MeshInstance3D = item[0]
-		var t: Transform3D = item[1]
-		var arrays: Array = inst.mesh.surface_get_arrays(0)
+	for source in sources:
+		var arrays: Array = source[0]
+		var t: Transform3D = source[1]
 		var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		var n: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 		var count := v.size()
@@ -170,12 +185,122 @@ static func _build(group: Dictionary) -> void:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(
 		Mesh.PRIMITIVE_TRIANGLES, out)
-	var merged := MeshInstance3D.new()
-	merged.name = "Merged"
-	merged.mesh = mesh
-	merged.material_override = group["material"]
-	merged.cast_shadow = group["shadow"]
-	(group["parent"] as Node3D).add_child(merged)
+	return mesh
+
+
+# ---------------------------------------------------------
+# Imported models (glb / fbx)
+# ---------------------------------------------------------
+
+static var _models: Dictionary = {}
+
+
+## Turns an imported model into one mesh per material,
+## standing on the origin: x and z centred, bottom at y = 0.
+## Returns {"parts": [[ArrayMesh, Material], ...],
+## "size": Vector3}. The result is cached per scene.
+## detail: 1 = full model; 0.25 = about a quarter of the
+## triangles, taken from the simplified versions (LODs)
+## that Godot builds when it imports the model.
+static func flatten_scene(scene: PackedScene,
+		detail: float = 1.0) -> Dictionary:
+	var key := "%s|%.2f" % [scene.resource_path, detail]
+	if _models.has(key):
+		return _models[key]
+	var inst := scene.instantiate()
+	var by_mat: Dictionary = {}
+	var bounds := [Vector3.INF, -Vector3.INF, detail]
+	_gather(inst, inst, by_mat, bounds)
+	var low: Vector3 = bounds[0]
+	var high: Vector3 = bounds[1]
+	var centre := (low + high) * 0.5
+	var shift := Transform3D(
+		Basis(), -Vector3(centre.x, low.y, centre.z))
+	var parts := []
+	for id in by_mat:
+		var entry: Array = by_mat[id]
+		var sources := []
+		for source in entry[1]:
+			sources.append([source[0], shift * source[1]])
+		parts.append([_join(sources), entry[0]])
+	inst.free()
+	var model := {"parts": parts, "size": high - low}
+	_models[key] = model
+	return model
+
+
+static func _gather(node: Node, root: Node, by_mat: Dictionary,
+		bounds: Array) -> void:
+	var inst := node as MeshInstance3D
+	if inst != null and inst.mesh != null:
+		var xform := Transform3D.IDENTITY
+		if node != root:
+			xform = _relative(inst, root as Node3D)
+		for s in inst.mesh.get_surface_count():
+			var mat := inst.get_active_material(s)
+			var arrays := inst.mesh.surface_get_arrays(s)
+			var detail: float = bounds[2]
+			if detail < 1.0:
+				_use_lod(inst.mesh, s, arrays, detail)
+			var id := 0 if mat == null else mat.get_instance_id()
+			if not by_mat.has(id):
+				by_mat[id] = [mat, []]
+			by_mat[id][1].append([arrays, xform])
+			var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			for p in v:
+				var q := xform * p
+				bounds[0] = (bounds[0] as Vector3).min(q)
+				bounds[1] = (bounds[1] as Vector3).max(q)
+	for child in node.get_children():
+		_gather(child, root, by_mat, bounds)
+
+
+## Swaps the triangle list for the smallest LOD that still
+## keeps at least `detail` of the triangles.
+static func _use_lod(mesh: Mesh, surface: int, arrays: Array,
+		detail: float) -> void:
+	if arrays[Mesh.ARRAY_INDEX] == null:
+		return
+	var full: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var data: Dictionary = RenderingServer.mesh_get_surface(
+		mesh.get_rid(), surface)
+	var wide: bool = int(data.get("vertex_count", 0)) > 65535
+	var step := 4 if wide else 2
+	var best := PackedByteArray()
+	for lod in data.get("lods", []):
+		var bytes: PackedByteArray = lod["index_data"]
+		var count := bytes.size() / step
+		if float(count) < float(full.size()) * detail:
+			break
+		best = bytes
+	if best.is_empty():
+		return
+	var indices := PackedInt32Array()
+	indices.resize(best.size() / step)
+	for i in indices.size():
+		if wide:
+			indices[i] = best.decode_u32(i * 4)
+		else:
+			indices[i] = best.decode_u16(i * 2)
+	arrays[Mesh.ARRAY_INDEX] = indices
+
+
+## Adds a flattened model under parent. Returns the new
+## MeshInstance3D nodes (one per material).
+static func place_model(parent: Node3D, model: Dictionary,
+		xform: Transform3D, shadows: bool = true) -> Array:
+	var placed := []
+	for part in model["parts"]:
+		var inst := MeshInstance3D.new()
+		inst.mesh = part[0]
+		inst.material_override = part[1]
+		inst.transform = xform
+		if not shadows:
+			inst.cast_shadow = \
+				GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(inst)
+		placed.append(inst)
+	return placed
 
 
 ## Box whose six faces each show the whole texture (UV 0-1),
