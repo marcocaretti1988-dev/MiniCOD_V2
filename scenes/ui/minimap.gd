@@ -14,6 +14,9 @@ var beacons: Array = []
 var _polygons: Array[PackedVector2Array] = []  # in world XZ metres
 var _circles: Array[Vector3] = []              # x, z, radius
 var _time: float = 0.0
+# All the obstacles as one mesh: one draw call instead of
+# one per obstacle. Coordinates go from 0 to 1.
+var _static_mesh: ArrayMesh
 
 
 ## Collects the footprint of every static collider under root (called once).
@@ -25,7 +28,48 @@ func setup(root: Node, player_node: Node3D, beacon_nodes: Array, map_size: float
 	_circles.clear()
 	if root != null:
 		_collect(root)
+	_build_static_mesh()
 	queue_redraw()
+
+
+func _build_static_mesh() -> void:
+	_static_mesh = null
+	var verts := PackedVector2Array()
+	var indices := PackedInt32Array()
+	for poly in _polygons:
+		var base := verts.size()
+		for p in poly:
+			verts.append(_to_unit(p.x, p.y))
+		for i in range(1, poly.size() - 1):
+			indices.append(base)
+			indices.append(base + i)
+			indices.append(base + i + 1)
+	var steps := 10
+	for circle in _circles:
+		var base := verts.size()
+		var centre := _to_unit(circle.x, circle.y)
+		var radius := maxf(circle.z, 0.6) / world_size
+		verts.append(centre)
+		for i in steps:
+			var angle := TAU * float(i) / float(steps)
+			verts.append(centre + Vector2.from_angle(angle) * radius)
+		for i in steps:
+			indices.append(base)
+			indices.append(base + 1 + i)
+			indices.append(base + 1 + (i + 1) % steps)
+	if verts.is_empty():
+		return
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_INDEX] = indices
+	_static_mesh = ArrayMesh.new()
+	_static_mesh.add_surface_from_arrays(
+		Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+
+func _to_unit(x: float, z: float) -> Vector2:
+	return Vector2(x / world_size + 0.5, z / world_size + 0.5)
 
 
 func _collect(node: Node) -> void:
@@ -58,15 +102,10 @@ func _to_map(x: float, z: float) -> Vector2:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), background)
-	var scale_px := size.x / world_size
 
-	for poly in _polygons:
-		var pts := PackedVector2Array()
-		for p in poly:
-			pts.append(_to_map(p.x, p.y))
-		draw_colored_polygon(pts, obstacle_color)
-	for circle in _circles:
-		draw_circle(_to_map(circle.x, circle.y), maxf(circle.z * scale_px, 1.5), obstacle_color)
+	if _static_mesh != null:
+		var fit := Transform2D(0.0, size, 0.0, Vector2.ZERO)
+		draw_mesh(_static_mesh, null, fit, obstacle_color)
 
 	# Beacons: pulsing yellow, steady green when activated.
 	for beacon in beacons:

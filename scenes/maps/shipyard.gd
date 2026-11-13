@@ -7,6 +7,7 @@ const ProcTex := preload("res://scripts/procedural_textures.gd")
 const ShipTex := preload("res://scripts/shipyard_textures.gd")
 const ENEMY_SCENE := preload("res://scenes/enemies/enemy.tscn")
 const ShipyardProps := preload("res://scripts/shipyard_props.gd")
+const MeshMerger := preload("res://scripts/mesh_merger.gd")
 
 const MAP_SIZE := 80.0
 const HALF := 40.0
@@ -106,6 +107,8 @@ func _ready() -> void:
 	_bake_navigation()
 	# Decoration only (no colliders), added after the navigation bake.
 	ShipyardProps.build(self)
+	# Fewer draw calls: join the small static meshes.
+	MeshMerger.merge_tree(_geometry)
 	_spawn_enemies()
 
 
@@ -114,6 +117,9 @@ func _ready() -> void:
 # ---------------------------------------------------------------------------
 
 func _mesh_box(parent: Node3D, size: Vector3, pos: Vector3, material: Material, rot_deg: Vector3 = Vector3.ZERO) -> MeshInstance3D:
+	if material == ShipTex.make_wood_uv_material():
+		var wood := MeshMerger.face_box(size)
+		return _mesh_part(parent, wood, pos, material, rot_deg)
 	var mesh := BoxMesh.new()
 	mesh.size = size
 	return _mesh_part(parent, mesh, pos, material, rot_deg)
@@ -257,6 +263,8 @@ func _add_container(base: Vector3, rot_y_deg: float, color_key: String, is_cover
 		var detail := body.get_child(i) as GeometryInstance3D
 		if detail != null:
 			detail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			# Frame parts share one mesh per container.
+			detail.set_meta("merge_local", true)
 
 
 # ---------------------------------------------------------------------------
@@ -358,17 +366,23 @@ func _add_shelf(base: Vector3, rot_y_deg: float, seed_value: int) -> void:
 			elif roll < 0.75:
 				_mesh_cylinder(body, 0.2, 0.55, Vector3(x, y + 0.03 + 0.275, 0), barrel_mat)
 			x += rng.randf_range(0.65, 0.95)
+	# The shelves stand under the warehouse roof, which
+	# already shades them: no shadow pass of their own.
+	for part in body.get_children():
+		var item := part as GeometryInstance3D
+		if item != null:
+			item.cast_shadow = \
+				GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 # ---------------------------------------------------------------------------
 # Crates, barrels, sandbags
 # ---------------------------------------------------------------------------
 
-func _get_wood(size: Vector3) -> StandardMaterial3D:
-	var key := "%.2f_%.2f_%.2f" % [size.x, size.y, size.z]
-	if not _wood_mats.has(key):
-		_wood_mats[key] = ShipTex.make_wood_material(size)
-	return _wood_mats[key]
+## One shared wood material: _mesh_box() gives wooden
+## boxes real UVs, so all of them can be merged.
+func _get_wood(_size: Vector3) -> StandardMaterial3D:
+	return ShipTex.make_wood_uv_material()
 
 
 func _add_crate(base: Vector3, size: float, rot_y_deg: float) -> StaticBody3D:

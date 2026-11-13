@@ -63,9 +63,14 @@ func _ready() -> void:
 	add_child(_rect)
 
 
-func apply_quality(quality: String) -> void:
+func apply_quality(quality: String, mobile: bool = false) -> void:
 	# Low keeps only the vignette (cheapest path); medium and high get everything.
 	var low := quality == "low"
+	if mobile:
+		# Phones: the full-screen pass is skipped on low and
+		# kept to the vignette on medium.
+		visible = not low
+		low = quality != "high"
 	_material.set_shader_parameter("vignette", 0.25)
 	_material.set_shader_parameter("grain", 0.0 if low else 0.08)
 	_material.set_shader_parameter("aberration", 0.0 if low else 0.02)

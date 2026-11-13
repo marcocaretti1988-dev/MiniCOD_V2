@@ -246,6 +246,21 @@ static func _make_wood_texture() -> ImageTexture:
 	return tex
 
 
+## One shared wood material for boxes built with
+## MeshMerger.face_box(): same look as make_wood_material,
+## but every crate uses this single material, so they can
+## be drawn together.
+static func make_wood_uv_material() -> StandardMaterial3D:
+	if _cache.has("wood_uv_mat"):
+		return _cache["wood_uv_mat"]
+	var mat := make_wood_material(Vector3.ONE)
+	mat.uv1_triplanar = false
+	mat.uv1_scale = Vector3.ONE
+	mat.uv1_offset = Vector3.ZERO
+	_cache["wood_uv_mat"] = mat
+	return mat
+
+
 ## Wood material, roughness 0.85. box_size maps one texture per box face.
 static func make_wood_material(box_size: Vector3) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
@@ -291,7 +306,13 @@ static func make_barrel_material(color: Color, seed_value: int) -> StandardMater
 				img.set_pixel(x, y, Color(clampf(c.r, 0.0, 1.0), clampf(c.g, 0.0, 1.0), clampf(c.b, 0.0, 1.0)))
 		img.generate_mipmaps()
 		_cache[key] = ImageTexture.create_from_image(img)
+	# One shared material per colour, so equal barrels
+	# can be drawn together.
+	var mat_key := key + "_mat"
+	if _cache.has(mat_key):
+		return _cache[mat_key]
 	var mat := StandardMaterial3D.new()
+	_cache[mat_key] = mat
 	mat.albedo_texture = _cache[key]
 	mat.metallic = 0.9
 	mat.roughness = 1.0

@@ -7,6 +7,7 @@ extends CharacterBody3D
 ## death = fall + fade + dust, respawn after 5 s.
 
 const WeaponFX := preload("res://scripts/weapon_fx.gd")
+const MeshMerger := preload("res://scripts/mesh_merger.gd")
 const EnemyFX := preload("res://scripts/enemy_fx.gd")
 
 enum State { PATROL, CHASE, ATTACK, COVER, DEAD }
@@ -652,6 +653,10 @@ func _build_body() -> void:
 	_muzzle.name = "Muzzle"
 	_muzzle.position = Vector3(0.06, 1.175, -1.01)
 	body.add_child(_muzzle)
+
+	# The soldier moves as one piece: join its parts into
+	# one mesh per material (about 43 draw calls -> 12).
+	MeshMerger.merge_tree(body, 0.0, true)
 
 
 func _build_effects() -> void:

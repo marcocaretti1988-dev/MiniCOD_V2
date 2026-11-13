@@ -15,6 +15,12 @@ extends Node
 ##           and on Forward+ also SDFGI, SSR, volumetric fog, DOF when aiming.
 ##   Medium: 2x MSAA, 4096 shadows, SSAO, and on Forward+ SSR + volumetric fog.
 ##   Low:    no MSAA, 2048 shadows, no SSAO, 70% 3D resolution, vignette only.
+##
+## PHONES (Android, iOS, browser on a phone) use their own
+## three levels, see MOBILE below. Default: medium.
+##   Low:    50% resolution, short 1024 shadows, no bloom.
+##   Medium: 65% resolution, 2048 shadows to 50 m, bloom.
+##   High:   85% resolution, 2x MSAA, shadows to 80 m, grain.
 
 signal quality_changed(quality: String)
 
@@ -26,10 +32,22 @@ const QUALITIES := ["low", "medium", "high"]
 const RENDERERS := ["forward_plus", "gl_compatibility"]
 const RESTART_FLAG := "--renderer-switched"
 
+# Phone profile: [3D scale, MSAA, shadow atlas, filter].
+const MOBILE := {
+	"low": [0.5, Viewport.MSAA_DISABLED, 1024,
+		RenderingServer.SHADOW_QUALITY_HARD],
+	"medium": [0.65, Viewport.MSAA_DISABLED, 2048,
+		RenderingServer.SHADOW_QUALITY_SOFT_LOW],
+	"high": [0.85, Viewport.MSAA_2X, 2048,
+		RenderingServer.SHADOW_QUALITY_SOFT_MEDIUM],
+}
+
 var quality: String = "medium"
 ## "auto", "forward_plus" or "gl_compatibility".
 var renderer_preference: String = "auto"
 var post: CanvasLayer
+## True on phones and tablets (native app or browser).
+var mobile: bool = false
 var _watchdog: Thread
 
 
@@ -41,9 +59,15 @@ func _ready() -> void:
 		var saved_renderer := str(config.get_value("graphics", "renderer", renderer_preference))
 		if saved_renderer == "auto" or saved_renderer in RENDERERS:
 			renderer_preference = saved_renderer
-	var saved_quality := str(config.get_value("graphics", "quality", "")) if has_file else ""
+	mobile = detect_mobile()
+	var saved_quality := ""
+	if has_file:
+		saved_quality = str(config.get_value(
+			"graphics", _quality_key(), ""))
 	if saved_quality in QUALITIES:
 		quality = saved_quality
+	elif mobile:
+		quality = "medium"
 	else:
 		# First run: full quality on Forward+, medium on the Compatibility fallback.
 		quality = "high" if get_desired_renderer() == "forward_plus" else "medium"
@@ -58,6 +82,22 @@ func _ready() -> void:
 	get_tree().node_added.connect(_on_node_added)
 	apply()
 	_check_renderer.call_deferred()
+
+
+## Phones and tablets, also when the game runs in their
+## browser. A touch laptop running the desktop app is not
+## counted: it keeps the PC levels.
+static func detect_mobile() -> bool:
+	if OS.has_feature("mobile") or OS.has_feature("web_android") \
+			or OS.has_feature("web_ios"):
+		return true
+	return OS.has_feature("web") \
+		and DisplayServer.is_touchscreen_available()
+
+
+## Phones keep their own saved level, separate from PC.
+func _quality_key() -> String:
+	return "quality_mobile" if mobile else "quality"
 
 
 ## Web only: stops Safari from scrolling or zooming the
@@ -180,12 +220,16 @@ func get_quality_index() -> int:
 
 func _save() -> void:
 	var config := ConfigFile.new()
-	config.set_value("graphics", "quality", quality)
+	config.load(SAVE_PATH)  # keep the other platform's level
+	config.set_value("graphics", _quality_key(), quality)
 	config.set_value("graphics", "renderer", renderer_preference)
 	config.save(SAVE_PATH)
 
 
 func apply() -> void:
+	if mobile:
+		_apply_mobile()
+		return
 	var viewport := get_tree().root
 	var low := quality == "low"
 	var high := quality == "high"
@@ -209,6 +253,25 @@ func apply() -> void:
 		_apply_environment(node as WorldEnvironment)
 
 
+func _apply_mobile() -> void:
+	var p: Array = MOBILE[quality]
+	var viewport := get_tree().root
+	viewport.scaling_3d_scale = p[0]
+	viewport.msaa_3d = p[1]
+	viewport.use_occlusion_culling = true
+	RenderingServer.directional_shadow_atlas_set_size(p[2], true)
+	RenderingServer \
+		.directional_soft_shadow_filter_set_quality(p[3])
+	RenderingServer \
+		.positional_soft_shadow_filter_set_quality(p[3])
+	if post != null:
+		post.apply_quality(quality, true)
+	var worlds := get_tree().root.find_children(
+		"*", "WorldEnvironment", true, false)
+	for node in worlds:
+		_apply_environment(node as WorldEnvironment)
+
+
 func _on_node_added(node: Node) -> void:
 	if node is WorldEnvironment:
 		_apply_environment.call_deferred(node)
@@ -217,4 +280,5 @@ func _on_node_added(node: Node) -> void:
 func _apply_environment(world: WorldEnvironment) -> void:
 	if world == null or not is_instance_valid(world) or not world.is_inside_tree() or world.environment == null:
 		return
-	GraphicsFX.setup_scene(world, quality, is_forward_plus())
+	GraphicsFX.setup_scene(
+		world, quality, is_forward_plus(), mobile)

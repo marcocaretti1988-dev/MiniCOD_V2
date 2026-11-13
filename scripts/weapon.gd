@@ -4,6 +4,7 @@ extends Node3D
 ## The hitscan ray, camera recoil and shake are handled by weapon_manager.gd.
 
 const WeaponFX := preload("res://scripts/weapon_fx.gd")
+const MeshMerger := preload("res://scripts/mesh_merger.gd")
 
 signal ammo_changed(current: int, magazine: int)
 signal fired
@@ -67,6 +68,8 @@ func _ready() -> void:
 	add_child(eject)
 
 	_setup()
+	# The viewmodel moves as one piece: one mesh per material.
+	MeshMerger.merge_tree(self, 0.0, true)
 	ammo = magazine_size
 
 	_flash_particles = WeaponFX.make_muzzle_flash(flash_size)

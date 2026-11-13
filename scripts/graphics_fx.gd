@@ -65,7 +65,9 @@ static func _set_if_present(object: Object, property: String, value: Variant) ->
 
 
 ## quality: "low", "medium" or "high". forward_plus: true when running on Forward+.
-static func setup_scene(world: WorldEnvironment, quality: String, forward_plus: bool) -> void:
+## mobile: phone profile (lighter shadows, no SSAO).
+static func setup_scene(world: WorldEnvironment, quality: String,
+		forward_plus: bool, mobile: bool = false) -> void:
 	var env := world.environment
 	if env == null:
 		return
@@ -86,6 +88,9 @@ static func setup_scene(world: WorldEnvironment, quality: String, forward_plus: 
 		sky.sky_cover = get_cloud_texture()
 		sky.sky_cover_modulate = Color(1.0, 1.0, 1.0)
 		env.sky.radiance_size = Sky.RADIANCE_SIZE_128 if low else Sky.RADIANCE_SIZE_256
+		if mobile:
+			env.sky.radiance_size = Sky.RADIANCE_SIZE_64 \
+				if low else Sky.RADIANCE_SIZE_128
 
 	# --- Tone mapping and colour grading ---
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
@@ -103,9 +108,11 @@ static func setup_scene(world: WorldEnvironment, quality: String, forward_plus: 
 	env.glow_hdr_threshold = 0.75
 	_set_if_present(env, "glow_strength", 0.6)
 	env.glow_bloom = 0.08
+	if mobile and low:
+		env.glow_enabled = false
 
 	# --- SSAO ---
-	env.ssao_enabled = not low
+	env.ssao_enabled = not low and not mobile
 	env.ssao_radius = 2.0
 	env.ssao_intensity = 1.4
 
@@ -143,6 +150,31 @@ static func setup_scene(world: WorldEnvironment, quality: String, forward_plus: 
 	env.fog_sun_scatter = 0.25
 
 	_setup_lights(world.get_parent(), quality)
+	if mobile:
+		_setup_mobile_sun(world.get_parent(), quality)
+
+
+## Phone shadows: fewer cascades over a shorter distance.
+## Every cascade redraws all the shadow casters, so this is
+## the setting that costs the most on a phone.
+static func _setup_mobile_sun(root: Node, quality: String) -> void:
+	if root == null:
+		return
+	var sun := root.get_node_or_null("Sun") as DirectionalLight3D
+	if sun == null:
+		return
+	var two := DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	var four := DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	sun.directional_shadow_blend_splits = false
+	if quality == "low":
+		sun.directional_shadow_mode = two
+		sun.directional_shadow_max_distance = 35.0
+	elif quality == "medium":
+		sun.directional_shadow_mode = two
+		sun.directional_shadow_max_distance = 50.0
+	else:
+		sun.directional_shadow_mode = four
+		sun.directional_shadow_max_distance = 80.0
 
 
 static func _setup_lights(root: Node, quality: String) -> void:
